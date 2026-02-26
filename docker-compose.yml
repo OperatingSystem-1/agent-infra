@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  provisioner:
+    build: ./api
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - NEON_CONNECTION_STRING=${NEON_CONNECTION_STRING}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+    volumes:
+      - ./terraform:/app/terraform:ro
+      - ./state:/app/state
+      - terraform-plugins:/root/.terraform.d/plugins
+    command: ["python", "provisioner.py"]
+    restart: unless-stopped
+
+  registry:
+    build: ./api
+    ports:
+      - "8081:8081"
+    environment:
+      - PORT=8081
+      - NEON_CONNECTION_STRING=${NEON_CONNECTION_STRING}
+    command: ["python", "registry.py"]
+    restart: unless-stopped
+
+  # nginx:
+  #   image: nginx:alpine
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
+  #   depends_on:
+  #     - provisioner
+  #     - registry
+
+volumes:
+  terraform-plugins:

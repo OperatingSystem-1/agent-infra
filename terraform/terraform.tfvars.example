@@ -1,0 +1,14 @@
+# Copy this file to terraform.tfvars and fill in values
+
+aws_region   = "us-east-1"
+cluster_name = "clawdbot-prod"
+agent_count  = 3
+agent_model  = "claude-sonnet-4-20250514"
+use_spot     = true
+
+# Sensitive - don't commit to git!
+neon_connection_string = "postgresql://user:pass@host/db?sslmode=require"
+anthropic_api_key      = "sk-ant-..."
+
+# Leave empty to auto-detect, or set after Packer build
+ami_id = ""

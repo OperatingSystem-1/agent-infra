@@ -1,0 +1,110 @@
+#cloud-config
+# ClawdBot Agent Bootstrap
+# Auto-configures and registers a new agent
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - curl
+  - git
+  - jq
+  - postgresql-client
+  - python3-pip
+
+write_files:
+  - path: /etc/clawdbot/agent.env
+    permissions: '0600'
+    content: |
+      AGENT_NAME=${agent_name}
+      AGENT_MODEL=${agent_model}
+      NEON_CONNECTION_STRING=${neon_conn}
+      ANTHROPIC_OAUTH_TOKEN=${anthropic_key}
+
+  - path: /opt/clawdbot/bootstrap.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -e
+      
+      source /etc/clawdbot/agent.env
+      
+      echo "[bootstrap] Starting agent: $AGENT_NAME"
+      
+      # Install Node.js 22
+      curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+      apt-get install -y nodejs
+      
+      # Install ClawdBot
+      npm install -g clawdbot
+      
+      # Install Playwright browsers
+      npx playwright install --with-deps chromium
+      
+      # Generate agent keypair
+      PRIVATE_KEY=$(openssl genpkey -algorithm Ed25519 2>/dev/null | base64 -w0)
+      PUBLIC_KEY=$(echo "$PRIVATE_KEY" | base64 -d | openssl pkey -pubout 2>/dev/null | base64 -w0)
+      
+      # Register in Neon
+      INSTANCE_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
+      
+      psql "$NEON_CONNECTION_STRING" <<EOF
+      INSERT INTO tq_agent_registry (agent_id, agent_name, instance_ip, status, model, registered_at, last_seen)
+      VALUES ('$AGENT_NAME', '$AGENT_NAME', '$INSTANCE_IP', 'online', '$AGENT_MODEL', NOW(), NOW())
+      ON CONFLICT (agent_id) DO UPDATE SET
+        instance_ip = EXCLUDED.instance_ip,
+        status = 'online',
+        last_seen = NOW();
+      
+      INSERT INTO tq_agent_keys (agent_id, public_key, key_type, created_at)
+      VALUES ('$AGENT_NAME', '$PUBLIC_KEY', 'ed25519', NOW())
+      ON CONFLICT (agent_id) DO UPDATE SET
+        public_key = EXCLUDED.public_key;
+      EOF
+      
+      # Store private key locally
+      mkdir -p /home/ubuntu/.clawdbot/identity
+      echo "$PRIVATE_KEY" > /home/ubuntu/.clawdbot/identity/private.key
+      chmod 600 /home/ubuntu/.clawdbot/identity/private.key
+      
+      # Create workspace
+      mkdir -p /home/ubuntu/agent
+      cd /home/ubuntu/agent
+      
+      # Generate minimal AGENTS.md
+      cat > AGENTS.md <<AGENTS
+      # Agent: $AGENT_NAME
+      
+      Auto-spawned agent. Part of the agent economy cluster.
+      
+      ## Mission
+      Execute tasks from shared queue. Collaborate with other agents.
+      
+      ## Capabilities
+      - Task execution
+      - Browser automation
+      - Code generation
+      - Inter-agent messaging
+      AGENTS
+      
+      # Initialize ClawdBot config
+      clawdbot init --agent "$AGENT_NAME" --model "$AGENT_MODEL"
+      
+      # Announce birth
+      psql "$NEON_CONNECTION_STRING" <<EOF
+      INSERT INTO tq_messages (from_agent, to_agent, message_type, payload, created_at)
+      VALUES ('$AGENT_NAME', 'broadcast', 'announcement', 
+        '{"event": "agent_online", "agent": "$AGENT_NAME", "ip": "$INSTANCE_IP", "model": "$AGENT_MODEL"}',
+        NOW());
+      EOF
+      
+      echo "[bootstrap] Agent $AGENT_NAME is online"
+      
+      # Start gateway
+      cd /home/ubuntu/agent
+      clawdbot gateway start
+      
+runcmd:
+  - /opt/clawdbot/bootstrap.sh
+
+final_message: "ClawdBot agent ${agent_name} bootstrap complete"
