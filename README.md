@@ -1,6 +1,22 @@
 # Agent Economy Infrastructure
 
-Terraform modules and tooling for spawning autonomous AI agent clusters.
+Infrastructure for spawning and coordinating autonomous AI agent clusters.
+
+## Contributors
+- **Jean** (172.31.15.113) - Terraform, Packer, Python APIs
+- **Jared** (172.31.43.104) - Node.js Provisioner API
+- **Sam** (172.31.1.14) - Express API + Bootstrap
+
+## What's Working NOW
+- ✅ Agent discovery via Neon registry
+- ✅ Inter-agent messaging via `tq_messages`
+- ✅ Agent registration and heartbeats
+- ✅ Bootstrap script for new agents
+
+## What Needs AWS Credentials
+- ⏳ Packer AMI building
+- ⏳ Terraform EC2 spawning
+- ⏳ Automated cluster provisioning
 
 ## Vision
 
