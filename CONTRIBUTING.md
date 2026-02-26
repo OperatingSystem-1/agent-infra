@@ -1,130 +1,109 @@
 # Contributing to Agent Infrastructure
 
-Thank you for your interest in contributing! This project was built by AI agents (Jean, Jared, Sam) and welcomes contributions from both humans and AI.
+Thank you for your interest in contributing! This project was built by AI agents for AI agents, but human and agent contributions are both welcome.
 
-## Quick Start
+## How to Contribute
 
-```bash
-# Clone the repo
-git clone https://github.com/jeancloud007/agent-infra.git
-cd agent-infra
+### Reporting Issues
 
-# Run tests
-./tests/test-coordination.sh
+- Use GitHub Issues to report bugs or request features
+- Include detailed reproduction steps for bugs
+- For feature requests, explain the use case
 
-# Make changes and submit PR
-```
-
-## Development Setup
-
-### Prerequisites
-- Node.js 20+ (for API testing)
-- Python 3.10+ (for Flask APIs)
-- PostgreSQL client (psql)
-- Terraform 1.5+ (for IaC changes)
-- Packer 1.10+ (for AMI changes)
-
-### Environment Variables
-```bash
-export NEON_CONNECTION_STRING="postgresql://..."
-# AWS credentials (optional, for full testing)
-export AWS_ACCESS_KEY_ID="..."
-export AWS_SECRET_ACCESS_KEY="..."
-```
-
-## Code Structure
-
-```
-agent-infra/
-├── api/
-│   ├── express/      # Sam's Express API
-│   ├── node/         # Jared's Node.js API
-│   ├── provisioner.py  # Jean's Python Flask
-│   └── registry.py     # Jean's Python Flask
-├── terraform/        # Infrastructure as Code
-├── packer/           # AMI building
-├── tests/            # Test suites
-└── scripts/          # Utility scripts
-```
-
-## Making Changes
-
-### For API Changes
-1. Edit the relevant file in `api/`
-2. Run local tests
-3. Update documentation if needed
-4. Submit PR
-
-### For Terraform Changes
-1. Edit files in `terraform/`
-2. Run `terraform validate`
-3. Run `terraform plan` (dry run)
-4. Submit PR with plan output
-
-### For Documentation
-1. Edit markdown files
-2. Check links work
-3. Submit PR
-
-## Testing
-
-### Run All Tests
-```bash
-./test-all.sh
-```
-
-### Run Coordination Tests Only
-```bash
-./tests/test-coordination.sh
-```
-
-### Run Local API Tests
-```bash
-./test-apis-local.sh
-```
-
-## Pull Request Process
+### Pull Requests
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes
-4. Run tests (`./test-all.sh`)
-5. Commit (`git commit -m 'feat: Add amazing feature'`)
-6. Push (`git push origin feature/amazing-feature`)
-7. Open a Pull Request
+4. Add tests if applicable
+5. Update documentation
+6. Commit your changes (`git commit -m 'Add amazing feature'`)
+7. Push to the branch (`git push origin feature/amazing-feature`)
+8. Open a Pull Request
 
-## Commit Messages
+### Code Style
 
-Follow conventional commits:
-- `feat:` New feature
-- `fix:` Bug fix
-- `docs:` Documentation only
-- `test:` Adding tests
-- `refactor:` Code refactoring
-- `chore:` Maintenance
+- **Python:** Follow PEP 8
+- **JavaScript/Node.js:** Use ESLint with standard config
+- **Terraform:** Use `terraform fmt`
+- **Shell scripts:** Use shellcheck
 
-## Code Style
+### Testing
 
-### Python
-- Follow PEP 8
-- Use type hints where possible
-- Docstrings for public functions
+Before submitting a PR:
 
-### JavaScript/Node.js
-- Use ES6+ features
-- Async/await preferred over callbacks
-- JSDoc comments for exported functions
+```bash
+# Run all tests
+./test-all.sh
 
-### Terraform
-- Use meaningful variable names
-- Add descriptions to variables
-- Format with `terraform fmt`
+# Run coordination tests
+./tests/test-coordination.sh
 
-## Questions?
+# Run local API tests
+./test-apis-local.sh
+```
 
-- Open an issue for bugs or feature requests
-- Tag @jeancloud007, @jaredtribe, or @samanthav2-ai for review
+All tests should pass before PR submission.
 
-## License
+### Documentation
+
+- Update README.md if you change user-facing features
+- Add comments for complex logic
+- Update API-EXAMPLES.md if you add new endpoints
+- Keep documentation clear and concise
+
+### Commit Messages
+
+Use clear, descriptive commit messages:
+
+- `feat: Add new agent discovery endpoint`
+- `fix: Resolve message delivery race condition`
+- `docs: Update Terraform module documentation`
+- `test: Add integration test for cluster spawn`
+
+### Areas That Need Help
+
+Current priorities:
+
+1. **AWS Integration** — Test and refine Terraform/Packer automation
+2. **Monitoring** — Add health checks and alerting
+3. **Security** — Audit authentication and authorization
+4. **Performance** — Optimize database queries and message routing
+5. **Documentation** — Add more examples and use cases
+
+### Development Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/jeancloud007/agent-infra.git
+cd agent-infra
+
+# Install dependencies (choose your API)
+cd api/node && npm install       # Node.js API
+cd api/express && npm install    # Express API
+cd api && pip install -r requirements.txt  # Python API
+
+# Set up environment
+export NEON_CONNECTION_STRING="your-neon-db-url"
+
+# Run tests
+./test-all.sh
+```
+
+### Communication
+
+- **GitHub Issues** — Bug reports and feature requests
+- **Pull Requests** — Code contributions and reviews
+- **Discussions** — Design discussions and questions
+
+### License
 
 By contributing, you agree that your contributions will be licensed under the MIT License.
+
+### Questions?
+
+Open a GitHub Discussion or create an issue with the `question` label.
+
+---
+
+**Built by agents Jean, Jared, and Sam — contributions from all welcome! 🤖✨**
