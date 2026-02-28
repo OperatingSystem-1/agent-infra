@@ -1,0 +1,303 @@
+#!/usr/bin/env bash
+#
+# agent-transfer - Inter-agent file transfer CLI
+# 
+# Filesystem-based MVP with tq_messages notifications.
+# Designed for future S3 backend swap without UX changes.
+#
+# Usage:
+#   agent-transfer send <file> --to <agent>
+#   agent-transfer inbox
+#   agent-transfer get <filename> [--output <dir>]
+#   agent-transfer list
+#   agent-transfer clean [--days <n>]
+#
+
+set -euo pipefail
+
+# Configuration
+TRANSFER_BASE="${TRANSFER_BASE:-/home/ubuntu/clawd/shared/transfers}"
+SELF="${AGENT_NAME:-$(whoami)}"
+DB_URL="${NEON_DATABASE_URL:-postgresql://neondb_owner:npg_24bYhdRcyZax@ep-polished-bread-ai1pqzi9-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require}"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Ensure directories exist
+init_dirs() {
+    mkdir -p "$TRANSFER_BASE/inbox/jean"
+    mkdir -p "$TRANSFER_BASE/inbox/jared"
+    mkdir -p "$TRANSFER_BASE/inbox/sam"
+    mkdir -p "$TRANSFER_BASE/inbox/samantha"
+    mkdir -p "$TRANSFER_BASE/.locks"
+    mkdir -p "$TRANSFER_BASE/.metadata"
+}
+
+# Generate unique transfer ID
+gen_id() {
+    echo "$(date +%Y%m%d-%H%M%S)-$(head -c 4 /dev/urandom | xxd -p)"
+}
+
+# Send file to another agent
+cmd_send() {
+    local file=""
+    local to=""
+    local message=""
+    
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --to) to="$2"; shift 2 ;;
+            --message|-m) message="$2"; shift 2 ;;
+            -*) echo "Unknown option: $1"; exit 1 ;;
+            *) file="$1"; shift ;;
+        esac
+    done
+    
+    if [[ -z "$file" || -z "$to" ]]; then
+        echo -e "${RED}Usage: agent-transfer send <file> --to <agent>${NC}"
+        exit 1
+    fi
+    
+    if [[ ! -f "$file" ]]; then
+        echo -e "${RED}Error: File not found: $file${NC}"
+        exit 1
+    fi
+    
+    # Normalize recipient name
+    to=$(echo "$to" | tr '[:upper:]' '[:lower:]')
+    if [[ "$to" == "samantha" ]]; then to="sam"; fi
+    
+    # Validate recipient
+    if [[ ! "$to" =~ ^(jean|jared|sam|all)$ ]]; then
+        echo -e "${RED}Error: Unknown recipient: $to${NC}"
+        echo "Valid recipients: jean, jared, sam, all"
+        exit 1
+    fi
+    
+    init_dirs
+    
+    local filename=$(basename "$file")
+    local transfer_id=$(gen_id)
+    local filesize=$(stat -c%s "$file")
+    local recipients=()
+    
+    if [[ "$to" == "all" ]]; then
+        recipients=(jean jared sam)
+    else
+        recipients=("$to")
+    fi
+    
+    for recipient in "${recipients[@]}"; do
+        if [[ "$recipient" == "$SELF" ]]; then
+            continue  # Don't send to self
+        fi
+        
+        local dest="$TRANSFER_BASE/inbox/$recipient/${transfer_id}_${filename}"
+        cp "$file" "$dest"
+        chmod 644 "$dest"
+        
+        # Write metadata
+        cat > "$TRANSFER_BASE/.metadata/${transfer_id}.json" <<EOF
+{
+    "id": "$transfer_id",
+    "filename": "$filename",
+    "from": "$SELF",
+    "to": "$recipient",
+    "size": $filesize,
+    "message": "$message",
+    "sent_at": "$(date -Iseconds)",
+    "path": "$dest"
+}
+EOF
+        
+        # Post notification to tq_messages (if psql available)
+        if command -v psql &> /dev/null; then
+            local payload=$(cat <<EOF
+{"type":"file_transfer","transfer_id":"$transfer_id","filename":"$filename","size":$filesize,"message":"$message"}
+EOF
+)
+            psql "$DB_URL" -c "INSERT INTO tq_messages (from_agent, to_agent, message_type, payload) VALUES ('$SELF', '$recipient', 'file_transfer', '$payload'::jsonb)" 2>/dev/null || true
+        fi
+        
+        echo -e "${GREEN}✓ Sent${NC} $filename ${BLUE}→${NC} $recipient (${transfer_id})"
+    done
+}
+
+# List files in inbox
+cmd_inbox() {
+    init_dirs
+    
+    local inbox_dir="$TRANSFER_BASE/inbox/$SELF"
+    
+    if [[ ! -d "$inbox_dir" ]]; then
+        echo "No inbox found"
+        return
+    fi
+    
+    local files=("$inbox_dir"/*)
+    
+    if [[ ! -e "${files[0]}" ]]; then
+        echo -e "${YELLOW}Inbox empty${NC}"
+        return
+    fi
+    
+    echo -e "${BLUE}=== Inbox ($SELF) ===${NC}"
+    echo ""
+    
+    for f in "$inbox_dir"/*; do
+        if [[ -f "$f" ]]; then
+            local fname=$(basename "$f")
+            local fsize=$(stat -c%s "$f")
+            local fdate=$(stat -c%y "$f" | cut -d'.' -f1)
+            
+            # Extract transfer ID and original filename
+            local transfer_id=$(echo "$fname" | cut -d'_' -f1)
+            local orig_name=$(echo "$fname" | cut -d'_' -f2-)
+            
+            printf "  ${GREEN}%-20s${NC} %8d bytes  %s\n" "$orig_name" "$fsize" "$fdate"
+            
+            # Show metadata if exists
+            if [[ -f "$TRANSFER_BASE/.metadata/${transfer_id}.json" ]]; then
+                local from=$(jq -r '.from // "unknown"' "$TRANSFER_BASE/.metadata/${transfer_id}.json")
+                local msg=$(jq -r '.message // ""' "$TRANSFER_BASE/.metadata/${transfer_id}.json")
+                echo -e "    ${YELLOW}from:${NC} $from"
+                if [[ -n "$msg" ]]; then
+                    echo -e "    ${YELLOW}message:${NC} $msg"
+                fi
+            fi
+            echo ""
+        fi
+    done
+}
+
+# Get/receive a file from inbox
+cmd_get() {
+    local filename=""
+    local output_dir="."
+    
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --output|-o) output_dir="$2"; shift 2 ;;
+            -*) echo "Unknown option: $1"; exit 1 ;;
+            *) filename="$1"; shift ;;
+        esac
+    done
+    
+    if [[ -z "$filename" ]]; then
+        echo -e "${RED}Usage: agent-transfer get <filename> [--output <dir>]${NC}"
+        exit 1
+    fi
+    
+    init_dirs
+    
+    local inbox_dir="$TRANSFER_BASE/inbox/$SELF"
+    
+    # Find matching file (partial match OK)
+    local found=""
+    for f in "$inbox_dir"/*"$filename"*; do
+        if [[ -f "$f" ]]; then
+            found="$f"
+            break
+        fi
+    done
+    
+    if [[ -z "$found" ]]; then
+        echo -e "${RED}Error: No file matching '$filename' in inbox${NC}"
+        return 1
+    fi
+    
+    local basename_full=$(basename "$found")
+    local orig_name=$(echo "$basename_full" | cut -d'_' -f2-)
+    local dest="$output_dir/$orig_name"
+    
+    mkdir -p "$output_dir"
+    mv "$found" "$dest"
+    
+    echo -e "${GREEN}✓ Received${NC} $orig_name → $dest"
+}
+
+# List all transfers (sent and received)
+cmd_list() {
+    init_dirs
+    
+    echo -e "${BLUE}=== Recent Transfers ===${NC}"
+    echo ""
+    
+    for meta in "$TRANSFER_BASE/.metadata"/*.json; do
+        if [[ -f "$meta" ]]; then
+            local id=$(jq -r '.id' "$meta")
+            local filename=$(jq -r '.filename' "$meta")
+            local from=$(jq -r '.from' "$meta")
+            local to=$(jq -r '.to' "$meta")
+            local sent_at=$(jq -r '.sent_at' "$meta")
+            local size=$(jq -r '.size' "$meta")
+            
+            printf "  ${GREEN}%s${NC}  %s → %s  %s (%d bytes)\n" "$id" "$from" "$to" "$filename" "$size"
+        fi
+    done
+}
+
+# Clean old transfers
+cmd_clean() {
+    local days=7
+    
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --days|-d) days="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+    
+    init_dirs
+    
+    echo "Cleaning transfers older than $days days..."
+    
+    # Clean inbox files
+    find "$TRANSFER_BASE/inbox" -type f -mtime +"$days" -delete 2>/dev/null || true
+    
+    # Clean metadata
+    find "$TRANSFER_BASE/.metadata" -type f -mtime +"$days" -delete 2>/dev/null || true
+    
+    echo -e "${GREEN}✓ Cleanup complete${NC}"
+}
+
+# Show help
+cmd_help() {
+    cat <<EOF
+agent-transfer - Inter-agent file transfer CLI
+
+Usage:
+  agent-transfer send <file> --to <agent> [--message "note"]
+  agent-transfer inbox
+  agent-transfer get <filename> [--output <dir>]
+  agent-transfer list
+  agent-transfer clean [--days <n>]
+
+Recipients:
+  jean, jared, sam, all
+
+Environment:
+  AGENT_NAME      Your agent name (default: \$USER)
+  TRANSFER_BASE   Base directory (default: /home/ubuntu/clawd/shared/transfers)
+
+Examples:
+  agent-transfer send ./spec.pdf --to jared --message "Review this"
+  agent-transfer inbox
+  agent-transfer get spec.pdf --output ./downloads/
+EOF
+}
+
+# Main
+case "${1:-help}" in
+    send)   shift; cmd_send "$@" ;;
+    inbox)  cmd_inbox ;;
+    get)    shift; cmd_get "$@" ;;
+    list)   cmd_list ;;
+    clean)  shift; cmd_clean "$@" ;;
+    help|--help|-h) cmd_help ;;
+    *)      echo "Unknown command: $1"; cmd_help; exit 1 ;;
+esac
